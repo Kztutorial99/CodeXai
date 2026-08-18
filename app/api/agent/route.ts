@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-
-const QWEN_BASE_URL = process.env.QWEN_BASE_URL ?? "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
-const QWEN_MODEL = process.env.QWEN_MODEL ?? "qwen3.8-max";
+import { qwenChat } from "@/lib/qwen/client";
 
 export async function POST(request: Request) {
   try {
@@ -10,41 +8,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    const apiKey = process.env.DASHSCOPE_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: "DASHSCOPE_API_KEY is not configured" }, { status: 500 });
-    }
-
-    const response = await fetch(`${QWEN_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    const data = await qwenChat([
+      {
+        role: "system",
+        content: "You are CodeXai, an autonomous software-building agent. Analyze the user's goal, propose an implementation plan, identify files and actions needed, and be concise. Do not claim to have executed commands or changed files unless the runtime actually did so.",
       },
-      body: JSON.stringify({
-        model: QWEN_MODEL,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are CodeXai, an autonomous software-building agent. Analyze the user's goal, propose an implementation plan, identify files and actions needed, and be concise. Do not claim to have executed commands or changed files unless the runtime actually did so.",
-          },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.2,
-      }),
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: data?.error?.message ?? "Qwen API request failed" },
-        { status: response.status },
-      );
-    }
+      { role: "user", content: prompt },
+    ]);
 
     return NextResponse.json({
-      model: QWEN_MODEL,
+      model: process.env.QWEN_MODEL ?? "qwen3.8-max",
       content: data?.choices?.[0]?.message?.content ?? "No response generated.",
     });
   } catch (error) {
