@@ -59,7 +59,14 @@ export default function Home() {
           <section className="preview">
             <div className="preview-head"><span className="browser-dot" /><span className="browser-dot" /><span className="browser-dot" /> Live Preview</div>
             <div className="preview-body">
-              {result ? <div><h2>Agent output</h2><p>{result}</p></div> : <div><><h2>Build with CodeXai</h2><p>Describe an application and the autonomous agent will plan the work. Runtime execution, browser testing, repair and Vercel deployment are the next layers of the platform.</p></>}
+              {result ? (
+                <div><h2>Agent output</h2><p>{result}</p></div>
+              ) : (
+                <div>
+                  <h2>Build with CodeXai</h2>
+                  <p>Describe an application and the autonomous agent will plan the work. Runtime execution, browser testing, repair and Vercel deployment are the next layers of the platform.</p>
+                </div>
+              )}
             </div>
           </section>
         </main>
