@@ -15,7 +15,8 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "@vercel/analytics": "latest"
+    "@vercel/analytics": "latest",
+    "@vercel/sandbox": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
