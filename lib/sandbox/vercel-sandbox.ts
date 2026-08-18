@@ -25,8 +25,8 @@ export async function runInSandbox(
     return {
       ok: result.exitCode === 0,
       exitCode: result.exitCode,
-      stdout: result.stdout ?? "",
-      stderr: result.stderr ?? "",
+      stdout: await result.stdout(),
+      stderr: await result.stderr(),
       durationMs: Date.now() - started,
     };
   } catch (error) {
