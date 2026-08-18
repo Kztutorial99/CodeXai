@@ -17,8 +17,19 @@ export type SandboxRunResult = {
   durationMs: number;
 };
 
+export type AgentFile = {
+  path: string;
+  content: string;
+};
+
 export type AgentPlan = {
   summary: string;
   tasks: string[];
+  files: AgentFile[];
   commands: string[];
+};
+
+export type AgentRepair = {
+  summary: string;
+  files: AgentFile[];
 };
