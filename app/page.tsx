@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 
 type Message = { role: "user" | "agent"; text: string };
 type Task = { title: string; detail: string; state: "done" | "active" | "queued" };
+type MobileTab = "agent" | "preview" | "code" | "activity";
 
 const seedTasks: Task[] = [
   { title: "Understand the request", detail: "Analyzing requirements and constraints", state: "done" },
@@ -19,7 +20,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [tasks, setTasks] = useState(seedTasks);
   const [running, setRunning] = useState(false);
-  const [tab, setTab] = useState<"preview" | "code">("preview");
+  const [tab, setTab] = useState<MobileTab>("agent");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -28,6 +29,7 @@ export default function Home() {
 
     setPrompt("");
     setRunning(true);
+    setTab("agent");
     setMessages((current) => [...current, { role: "user", text: value }, { role: "agent", text: "I’m planning this build now…" }]);
     setTasks((current) => current.map((task, index) => ({ ...task, state: index === 1 ? "active" : index === 0 ? "done" : "queued" })));
 
@@ -48,6 +50,11 @@ export default function Home() {
     }
   }
 
+  const setMobileTab = (nextTab: MobileTab) => {
+    setTab(nextTab);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -56,9 +63,11 @@ export default function Home() {
       </header>
 
       <div className="mobile-tabs">
-        <button className={tab === "preview" ? "selected" : ""} onClick={() => setTab("preview")}>Preview</button>
-        <button className={tab === "code" ? "selected" : ""} onClick={() => setTab("code")}>Code</button>
-        <button onClick={() => document.getElementById("activity")?.scrollIntoView({ behavior: "smooth" })}>Activity</button>
+        {(["agent", "preview", "code", "activity"] as MobileTab[]).map((item) => (
+          <button key={item} className={tab === item ? "selected" : ""} onClick={() => setMobileTab(item)}>
+            {item[0].toUpperCase() + item.slice(1)}
+          </button>
+        ))}
       </div>
 
       <main className="builder-grid">
@@ -75,7 +84,7 @@ export default function Home() {
           <div className="rail-bottom"><div className="usage"><span>Agent credits</span><strong>Ready</strong></div><div className="user-row"><span className="avatar">S</span><span>Workspace</span><button>•••</button></div></div>
         </aside>
 
-        <section className={`agent-column ${tab === "code" ? "mobile-hidden" : ""}`}>
+        <section className={`agent-column mobile-pane ${tab === "agent" ? "mobile-pane-active" : ""}`}>
           <div className="column-heading"><div><strong>Agent</strong><small>Build with natural language</small></div><span className={running ? "live live-running" : "live"}><i /> {running ? "Working" : "Ready"}</span></div>
           <div className="chat-scroll">
             {messages.length === 0 ? (
@@ -99,21 +108,24 @@ export default function Home() {
           </form>
         </section>
 
-        <section className={`preview-column ${tab === "code" ? "code-active" : ""}`}>
-          <div className="preview-toolbar"><div className="view-title"><span className="traffic"><i /><i /><i /></span><strong>{tab === "code" ? "Code" : "Live preview"}</strong><span className="preview-url">localhost:3000</span></div><div className="view-actions"><button>↻</button><button>↗</button><button className="device-active">▣</button></div></div>
-          <div className="preview-canvas">
-            {tab === "code" ? <pre>{`// CodeXai workspace\n// Your generated project will appear here.\n\nexport default function App() {\n  return <YourApp />;\n}`}</pre> : <div className="app-placeholder"><div className="placeholder-window"><div className="placeholder-top"><span /> <span /> <span /></div><div className="placeholder-content"><div className="placeholder-logo">✦</div><h2>Your app preview</h2><p>As CodeXai builds, the running application will appear here.</p><button>Open preview</button></div></div></div>}
-          </div>
+        <section className={`preview-column mobile-pane ${tab === "preview" ? "mobile-pane-active" : ""}`}>
+          <div className="preview-toolbar"><div className="view-title"><span className="traffic"><i /><i /><i /></span><strong>Live preview</strong><span className="preview-url">localhost:3000</span></div><div className="view-actions"><button>↻</button><button>↗</button><button className="device-active">▣</button></div></div>
+          <div className="preview-canvas"><div className="app-placeholder"><div className="placeholder-window"><div className="placeholder-top"><span /> <span /> <span /></div><div className="placeholder-content"><div className="placeholder-logo">✦</div><h2>Your app preview</h2><p>As CodeXai builds, the running application will appear here.</p><button>Open preview</button></div></div></div></div>
         </section>
 
-        <aside className="activity-panel" id="activity">
+        <section className={`preview-column mobile-pane ${tab === "code" ? "mobile-pane-active" : ""}`}>
+          <div className="preview-toolbar"><div className="view-title"><span className="traffic"><i /><i /><i /></span><strong>Code</strong><span className="preview-url">workspace</span></div><div className="view-actions"><button>↻</button><button>↗</button></div></div>
+          <div className="preview-canvas"><pre>{`// CodeXai workspace\n// Generated files will appear here as the agent builds.\n\nexport default function App() {\n  return <YourApp />;\n}`}</pre></div>
+        </section>
+
+        <aside className={`activity-panel mobile-pane ${tab === "activity" ? "mobile-pane-active" : ""}`} id="activity">
           <div className="activity-head"><div><strong>Build activity</strong><small>Autonomous task loop</small></div><button>•••</button></div>
           <div className="task-list">{tasks.map((task, index) => <div className={`task ${task.state}`} key={task.title}><div className="task-marker">{task.state === "done" ? "✓" : task.state === "active" ? <span className="loader" /> : index + 1}</div><div><strong>{task.title}</strong><span>{task.detail}</span></div></div>)}</div>
           <div className="activity-footer"><span><i className={running ? "pulse" : ""} /> {running ? "Agent is working" : "Waiting for a task"}</span><small>Sandbox isolated</small></div>
         </aside>
       </main>
 
-      <nav className="bottom-nav"><button className="selected">✦<span>Agent</span></button><button onClick={() => setTab("preview")}>◉<span>Preview</span></button><button onClick={() => setTab("code")}>▤<span>Code</span></button><button onClick={() => document.getElementById("activity")?.scrollIntoView({ behavior: "smooth" })}>☷<span>Activity</span></button></nav>
+      <nav className="bottom-nav">{(["agent", "preview", "code", "activity"] as MobileTab[]).map((item) => <button key={item} className={tab === item ? "selected" : ""} onClick={() => setMobileTab(item)}><span>{item === "agent" ? "✦" : item === "preview" ? "◉" : item === "code" ? "▤" : "☷"}</span><span>{item[0].toUpperCase() + item.slice(1)}</span></button>)}</nav>
     </div>
   );
 }
