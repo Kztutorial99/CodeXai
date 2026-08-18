@@ -44,7 +44,8 @@ export async function readWorkspaceFiles(sandbox: Sandbox, paths: string[]): Pro
   const result: AgentFile[] = [];
   for (const path of paths.slice(0, 20)) {
     try {
-      const content = await sandbox.readFile(`${ROOT}/${path}`);
+      const content = await sandbox.readFile({ cwd: ROOT, path });
+      if (content == null) continue;
       result.push({ path, content: content.toString().slice(0, 100_000) });
     } catch {
       // Missing files are ignored; the repair agent can work with the remaining context.
