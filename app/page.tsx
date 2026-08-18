@@ -6,203 +6,35 @@ type Message = { role: "user" | "agent"; text: string };
 type Task = { title: string; detail: string; state: "done" | "active" | "queued" | "failed" };
 type MobileTab = "agent" | "preview" | "code" | "activity";
 type AgentStep = { name: string; status: string; detail?: string };
-type AgentResult = {
-  previewUrl?: string | null;
-  files?: string[];
-  steps?: AgentStep[];
-  executions?: Array<{ command: string; ok: boolean; stdout: string; stderr: string; durationMs: number }>;
-  plan?: { summary?: string };
-  repairAttempts?: number;
-};
-
+type AgentResult = { previewUrl?: string | null; files?: string[]; steps?: AgentStep[]; executions?: Array<{ command: string; ok: boolean; stdout: string; stderr: string; durationMs: number }>; plan?: { summary?: string }; repairAttempts?: number };
 const seedTasks: Task[] = [
-  { title: "Understand the request", detail: "Analyzing requirements and constraints", state: "done" },
-  { title: "Plan the application", detail: "Qwen generates architecture and source files", state: "queued" },
-  { title: "Build the project", detail: "Writing files and installing dependencies", state: "queued" },
-  { title: "Run tests", detail: "Running the production build and inspecting failures", state: "queued" },
-  { title: "Fix issues", detail: "Qwen diagnoses failures and repairs files", state: "queued" },
-  { title: "Live preview", detail: "Starting the generated application", state: "queued" },
+ { title:"Understand the request",detail:"Analyzing requirements and constraints",state:"done" },
+ { title:"Plan the application",detail:"Qwen generates architecture and source files",state:"queued" },
+ { title:"Build the project",detail:"Writing files and installing dependencies",state:"queued" },
+ { title:"Run tests",detail:"Running the production build and inspecting failures",state:"queued" },
+ { title:"Fix issues",detail:"Qwen diagnoses failures and repairs files",state:"queued" },
+ { title:"Live preview",detail:"Starting the generated application",state:"queued" },
 ];
-
-function taskState(status: string | undefined): Task["state"] {
-  if (status === "completed") return "done";
-  if (status === "running") return "active";
-  if (status === "failed") return "failed";
-  return "queued";
-}
-
-export default function Home() {
-  const [prompt, setPrompt] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [tasks, setTasks] = useState(seedTasks);
-  const [running, setRunning] = useState(false);
-  const [tab, setTab] = useState<MobileTab>("agent");
-  const [workspaceId, setWorkspaceId] = useState("default");
-  const [result, setResult] = useState<AgentResult | null>(null);
-  const [notice, setNotice] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [activityMenuOpen, setActivityMenuOpen] = useState(false);
-  const [previewKey, setPreviewKey] = useState(0);
-  const [mobilePreview, setMobilePreview] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const existing = window.localStorage.getItem("codexai-workspace-id");
-    if (existing) setWorkspaceId(existing);
-    else {
-      const id = crypto.randomUUID().slice(0, 18);
-      window.localStorage.setItem("codexai-workspace-id", id);
-      setWorkspaceId(id);
-    }
-  }, []);
-
-  function showNotice(text: string) {
-    setNotice(text);
-    window.setTimeout(() => setNotice(""), 3200);
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const value = prompt.trim();
-    if (!value || running) return;
-
-    setPrompt("");
-    setRunning(true);
-    setTab("agent");
-    setResult(null);
-    setMessages((current) => [
-      ...current,
-      { role: "user", text: value },
-      { role: "agent", text: "I’m starting the autonomous build: planning files, creating the workspace, building and testing it…" },
-    ]);
-    setTasks(seedTasks.map((task, index) => ({ ...task, state: index === 0 ? "done" : index === 1 ? "active" : "queued" })));
-
-    try {
-      const response = await fetch("/api/agent/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: value, workspaceId }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Autonomous agent failed");
-      setResult(data);
-
-      const summary = data.plan?.summary ?? "Build completed.";
-      const previewText = data.previewUrl ? `\n\nLive preview: ${data.previewUrl}` : "";
-      const repairText = data.repairAttempts ? ` Automated repair attempts: ${data.repairAttempts}.` : "";
-      setMessages((current) => [
-        ...current.slice(0, -1),
-        { role: "agent", text: `${summary}\n\nI created ${data.files?.length ?? 0} project files, ran the build/test loop, and attempted automated repair when needed.${repairText}${previewText}` },
-      ]);
-
-      const stepMap = new Map((data.steps ?? []).map((step: AgentStep) => [step.name, step.status]));
-      setTasks([
-        { ...seedTasks[0], state: "done" },
-        { ...seedTasks[1], state: taskState(stepMap.get("plan")) },
-        { ...seedTasks[2], state: taskState(stepMap.get("build")) },
-        { ...seedTasks[3], state: taskState(stepMap.get("test")) },
-        { ...seedTasks[4], state: taskState(stepMap.get("repair")) },
-        { ...seedTasks[5], state: taskState(stepMap.get("deploy")) },
-      ]);
-      if (data.previewUrl) setTab("preview");
-      else if (data.files?.length) setTab("code");
-    } catch (error) {
-      const text = error instanceof Error ? error.message : "Agent request failed";
-      setMessages((current) => [...current.slice(0, -1), { role: "agent", text }]);
-      setTasks((current) => current.map((task, index) => index === 1 ? { ...task, state: "failed" } : task));
-      setTab("activity");
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  const setMobileTab = (nextTab: MobileTab) => {
-    setTab(nextTab);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const openPreview = () => {
-    if (!result?.previewUrl) {
-      showNotice("Build the project first to create a live preview.");
-      setTab("agent");
-      return;
-    }
-    window.open(result.previewUrl, "_blank", "noopener,noreferrer");
-  };
-
-  const publish = () => {
-    if (!result?.previewUrl) {
-      showNotice("Publish is available after a successful build and live preview.");
-      setTab("agent");
-      return;
-    }
-    showNotice("Preview is ready. Production publishing will use the Vercel deployment integration next.");
-  };
-
-  const codePreview = result?.files?.length
-    ? result.files.map((file) => `// ${file}`).join("\n")
-    : "// Generated project files will appear here.";
-
-  return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div className="brand"><button className="brand-mark" onClick={() => setMobileTab("agent")} aria-label="Open Agent">CX</button><strong>CodeXai</strong><span className="workspace-name">/ New project</span></div>
-        <div className="header-actions"><span className="connection"><i /> Qwen connected</span><button className="icon-btn" aria-label="Settings" onClick={() => setSettingsOpen(true)}>⚙</button><button className="publish-btn" onClick={publish}>Publish</button></div>
-      </header>
-
-      {notice ? <div className="toast" role="status">{notice}</div> : null}
-
-      <div className="mobile-tabs">
-        {(["agent", "preview", "code", "activity"] as MobileTab[]).map((item) => <button key={item} className={tab === item ? "selected" : ""} onClick={() => setMobileTab(item)}>{item[0].toUpperCase() + item.slice(1)}</button>)}
-      </div>
-
-      <main className="builder-grid">
-        <aside className="project-rail">
-          <div className="rail-title">PROJECT</div>
-          <button className="project-card" onClick={() => setMobileTab("agent")}><span className="project-icon">✦</span><div><strong>New project</strong><small>{workspaceId}</small></div><span className="chevron">⌄</span></button>
-          <div className="rail-title">WORKSPACE</div>
-          <nav className="rail-nav">
-            <button className={tab === "agent" ? "active" : ""} onClick={() => setMobileTab("agent")}>✦ <span>Agent</span></button>
-            <button className={tab === "code" ? "active" : ""} onClick={() => setMobileTab("code")}>▦ <span>Files</span></button>
-            <button className={tab === "preview" ? "active" : ""} onClick={() => setMobileTab("preview")}>◉ <span>Preview</span></button>
-            <button onClick={() => { setMobileTab("activity"); showNotice("Deployment history will appear after publishing."); }}>⌁ <span>Deployments</span></button>
-          </nav>
-          <div className="rail-bottom"><div className="usage"><span>Agent credits</span><strong>Ready</strong></div><div className="user-row"><span className="avatar">S</span><span>Workspace</span><button onClick={() => setSettingsOpen(true)} aria-label="Workspace settings">•••</button></div></div>
-        </aside>
-
-        <section className={`agent-column mobile-pane ${tab === "agent" ? "mobile-pane-active" : ""}`}>
-          <div className="column-heading"><div><strong>Agent</strong><small>Autonomous build workspace</small></div><span className={running ? "live live-running" : "live"}><i /> {running ? "Working" : "Ready"}</span></div>
-          <div className="chat-scroll">
-            {messages.length === 0 ? <div className="welcome"><div className="spark">✦</div><h1>What do you want to build?</h1><p>CodeXai will generate files with Qwen, execute them in a persistent Vercel Sandbox, build, repair failures, and start a live preview.</p><div className="suggestions"><button onClick={() => setPrompt("Build a modern SaaS dashboard with authentication and a responsive mobile layout")}>Build a SaaS dashboard</button><button onClick={() => setPrompt("Build a landing page for an AI product with pricing and a waitlist")}>Create a landing page</button><button onClick={() => setPrompt("Build a simple task manager with projects, filters and a mobile UI")}>Make a task manager</button></div></div> : <div className="conversation">{messages.map((message, index) => <div className={`message ${message.role}`} key={`${message.role}-${index}`}><div className="message-avatar">{message.role === "user" ? "S" : "✦"}</div><div className="message-body"><span className="message-label">{message.role === "user" ? "You" : "CodeXai"}</span><p>{message.text}</p></div></div>)}</div>}
-          </div>
-          <form className="composer" onSubmit={submit}>
-            <input ref={fileInputRef} type="file" hidden multiple onChange={(event) => { const names = Array.from(event.target.files ?? []).map((file) => file.name); if (names.length) setPrompt((current) => `${current}${current ? "\n" : ""}Attached files: ${names.join(", ")}`); event.currentTarget.value = ""; }} />
-            <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Ask CodeXai to build or change something…" rows={3} />
-            <div className="composer-bar"><div className="composer-tools"><button type="button" aria-label="Attach files" onClick={() => fileInputRef.current?.click()}>＋</button><span>Qwen • autonomous mode</span></div><button className="send-btn" disabled={running || !prompt.trim()}>{running ? "…" : "↑"}</button></div>
-          </form>
-        </section>
-
-        <section className={`preview-column mobile-pane ${tab === "preview" ? "mobile-pane-active" : ""}`}>
-          <div className="preview-toolbar"><div className="view-title"><span className="traffic"><i /><i /><i /></span><strong>Live preview</strong><span className="preview-url">{result?.previewUrl ? "Sandbox :3000" : "waiting"}</span></div><div className="view-actions"><button onClick={() => result?.previewUrl ? setPreviewKey((key) => key + 1) : showNotice("Nothing to refresh yet.")} aria-label="Refresh preview">↻</button><button onClick={openPreview} aria-label="Open preview">↗</button><button className={mobilePreview ? "device-active" : ""} onClick={() => setMobilePreview((value) => !value)} aria-label="Toggle mobile preview">▣</button></div></div>
-          <div className="preview-canvas">{result?.previewUrl ? <iframe key={previewKey} title="CodeXai live preview" src={result.previewUrl} className="live-preview-frame" style={mobilePreview ? { width: "390px", maxWidth: "100%", margin: "0 auto", display: "block" } : undefined} /> : <div className="app-placeholder"><div className="placeholder-window"><div className="placeholder-top"><span /> <span /> <span /></div><div className="placeholder-content"><div className="placeholder-logo">✦</div><h2>Live app preview</h2><p>Run Build to create the app and start a real sandbox preview.</p><button onClick={() => setMobileTab("agent")}>Ask Agent to build</button></div></div></div>}</div>
-        </section>
-
-        <section className={`preview-column mobile-pane ${tab === "code" ? "mobile-pane-active" : ""}`}>
-          <div className="preview-toolbar"><div className="view-title"><span className="traffic"><i /><i /><i /></span><strong>Generated files</strong><span className="preview-url">{result?.files?.length ? `${result.files.length} files` : "workspace"}</span></div></div>
-          <div className="preview-canvas"><pre>{codePreview}</pre></div>
-        </section>
-
-        <aside className={`activity-panel mobile-pane ${tab === "activity" ? "mobile-pane-active" : ""}`} id="activity">
-          <div className="activity-head"><div><strong>Build activity</strong><small>Autonomous task loop</small></div><div className="activity-menu"><button onClick={() => setActivityMenuOpen((open) => !open)} aria-label="Activity menu">•••</button>{activityMenuOpen ? <div className="menu-popover"><button onClick={() => { setActivityMenuOpen(false); setTab("agent"); }}>Open Agent</button><button onClick={() => { setActivityMenuOpen(false); showNotice("Activity is preserved for this session."); }}>Session info</button></div> : null}</div></div>
-          <div className="task-list">{tasks.map((task, index) => <div className={`task ${task.state}`} key={task.title}><div className="task-marker">{task.state === "done" ? "✓" : task.state === "active" ? <span className="loader" /> : task.state === "failed" ? "!" : index + 1}</div><div><strong>{task.title}</strong><span>{task.detail}</span></div></div>)}</div>
-          {result?.executions?.length ? <div className="execution-list">{result.executions.map((item, index) => <div className="execution" key={`${item.command}-${index}`}><span className={item.ok ? "exec-ok" : "exec-fail"}>{item.ok ? "✓" : "!"}</span><code>{item.command}</code><small>{item.durationMs}ms</small></div>)}</div> : null}
-          <div className="activity-footer"><span><i className={running ? "pulse" : ""} /> {running ? "Agent is working" : result ? "Build session complete" : "Waiting for a task"}</span><small>Persistent sandbox</small></div>
-        </aside>
-      </main>
-
-      <nav className="bottom-nav">{(["agent", "preview", "code", "activity"] as MobileTab[]).map((item) => <button key={item} className={tab === item ? "selected" : ""} onClick={() => setMobileTab(item)}><span>{item === "agent" ? "✦" : item === "preview" ? "◉" : item === "code" ? "▤" : "☷"}</span><span>{item[0].toUpperCase() + item.slice(1)}</span></button>)}</nav>
-
-      {settingsOpen ? <div className="modal-backdrop" role="presentation" onClick={() => setSettingsOpen(false)}><div className="settings-modal" role="dialog" aria-modal="true" aria-label="CodeXai settings" onClick={(event) => event.stopPropagation()}><div className="settings-head"><div><strong>Workspace settings</strong><small>CodeXai configuration</small></div><button onClick={() => setSettingsOpen(false)} aria-label="Close settings">×</button></div><div className="settings-row"><span>Workspace ID</span><code>{workspaceId}</code></div><div className="settings-row"><span>AI provider</span><strong>Qwen</strong></div><div className="settings-row"><span>Execution</span><strong>Persistent Vercel Sandbox</strong></div><button className="publish-btn settings-close" onClick={() => setSettingsOpen(false)}>Done</button></div></div> : null}
-    </div>
-  );
+function taskState(status: string | undefined): Task["state"] { if(status==="completed") return "done"; if(status==="running") return "active"; if(status==="failed") return "failed"; return "queued"; }
+export default function Home(){
+ const [prompt,setPrompt]=useState(""); const [messages,setMessages]=useState<Message[]>([]); const [tasks,setTasks]=useState(seedTasks); const [running,setRunning]=useState(false); const [tab,setTab]=useState<MobileTab>("agent"); const [workspaceId,setWorkspaceId]=useState("default"); const [result,setResult]=useState<AgentResult|null>(null); const [notice,setNotice]=useState(""); const [settingsOpen,setSettingsOpen]=useState(false); const [activityMenuOpen,setActivityMenuOpen]=useState(false); const [previewKey,setPreviewKey]=useState(0); const [mobilePreview,setMobilePreview]=useState(false); const fileInputRef=useRef<HTMLInputElement>(null);
+ useEffect(()=>{const existing=window.localStorage.getItem("codexai-workspace-id"); if(existing)setWorkspaceId(existing); else {const id=crypto.randomUUID().slice(0,18);window.localStorage.setItem("codexai-workspace-id",id);setWorkspaceId(id);}},[]);
+ function showNotice(text:string){setNotice(text);window.setTimeout(()=>setNotice(""),3200)}
+ async function submit(event:FormEvent){event.preventDefault();const value=prompt.trim();if(!value||running)return;setPrompt("");setRunning(true);setTab("agent");setResult(null);setMessages(c=>[...c,{role:"user",text:value},{role:"agent",text:"I’m starting the autonomous build: planning files, creating the workspace, building and testing it…"}]);setTasks(seedTasks.map((t,i)=>({...t,state:i===0?"done":i===1?"active":"queued"})));
+  try{const response=await fetch("/api/agent/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:value,workspaceId})});const data:AgentResult=await response.json();if(!response.ok)throw new Error((data as AgentResult & {error?:string}).error??"Autonomous agent failed");setResult(data);const summary=data.plan?.summary??"Build completed.";const previewText=data.previewUrl?`\n\nLive preview: ${data.previewUrl}`:"";const repairText=data.repairAttempts?` Automated repair attempts: ${data.repairAttempts}.`:"";setMessages(c=>[...c.slice(0,-1),{role:"agent",text:`${summary}\n\nI created ${data.files?.length??0} project files, ran the build/test loop, and attempted automated repair when needed.${repairText}${previewText}`}]);
+   const stepMap=new Map<string,string>((data.steps??[]).map((step:AgentStep)=>[step.name,step.status]));setTasks([{...seedTasks[0],state:"done"},{...seedTasks[1],state:taskState(stepMap.get("plan"))},{...seedTasks[2],state:taskState(stepMap.get("build"))},{...seedTasks[3],state:taskState(stepMap.get("test"))},{...seedTasks[4],state:taskState(stepMap.get("repair"))},{...seedTasks[5],state:taskState(stepMap.get("deploy"))}]);if(data.previewUrl)setTab("preview");else if(data.files?.length)setTab("code");
+  }catch(error){const text=error instanceof Error?error.message:"Agent request failed";setMessages(c=>[...c.slice(0,-1),{role:"agent",text}]);setTasks(c=>c.map((t,i)=>i===1?{...t,state:"failed"}:t));setTab("activity");}finally{setRunning(false)} }
+ const setMobileTab=(next:MobileTab)=>{setTab(next);window.scrollTo({top:0,behavior:"smooth"})};
+ const openPreview=()=>{if(!result?.previewUrl){showNotice("Build the project first to create a live preview.");setTab("agent");return}window.open(result.previewUrl,"_blank","noopener,noreferrer")};
+ const publish=()=>{if(!result?.previewUrl){showNotice("Publish is available after a successful build and live preview.");setTab("agent");return}showNotice("Preview is ready. Production publishing will use the Vercel deployment integration next.")};
+ const codePreview=result?.files?.length?result.files.map(file=>`// ${file}`).join("\n"):"// Generated project files will appear here.";
+ return <div className="app-shell"><header className="app-header"><div className="brand"><button className="brand-mark" onClick={()=>setMobileTab("agent")} aria-label="Open Agent">CX</button><strong>CodeXai</strong><span className="workspace-name">/ New project</span></div><div className="header-actions"><span className="connection"><i/> Qwen connected</span><button className="icon-btn" aria-label="Settings" onClick={()=>setSettingsOpen(true)}>⚙</button><button className="publish-btn" onClick={publish}>Publish</button></div></header>
+ {notice?<div className="toast" role="status">{notice}</div>:null}<div className="mobile-tabs">{(["agent","preview","code","activity"] as MobileTab[]).map(item=><button key={item} className={tab===item?"selected":""} onClick={()=>setMobileTab(item)}>{item[0].toUpperCase()+item.slice(1)}</button>)}</div>
+ <main className="builder-grid"><aside className="project-rail"><div className="rail-title">PROJECT</div><button className="project-card" onClick={()=>setMobileTab("agent")}><span className="project-icon">✦</span><div><strong>New project</strong><small>{workspaceId}</small></div><span className="chevron">⌄</span></button><div className="rail-title">WORKSPACE</div><nav className="rail-nav"><button className={tab==="agent"?"active":""} onClick={()=>setMobileTab("agent")}>✦ <span>Agent</span></button><button className={tab==="code"?"active":""} onClick={()=>setMobileTab("code")}>▦ <span>Files</span></button><button className={tab==="preview"?"active":""} onClick={()=>setMobileTab("preview")}>◉ <span>Preview</span></button><button onClick={()=>{setMobileTab("activity");showNotice("Deployment history will appear after publishing.")}}>⌁ <span>Deployments</span></button></nav><div className="rail-bottom"><div className="usage"><span>Agent credits</span><strong>Ready</strong></div><div className="user-row"><span className="avatar">S</span><span>Workspace</span><button onClick={()=>setSettingsOpen(true)} aria-label="Workspace settings">•••</button></div></div></aside>
+ <section className={`agent-column mobile-pane ${tab==="agent"?"mobile-pane-active":""}`}><div className="column-heading"><div><strong>Agent</strong><small>Autonomous build workspace</small></div><span className={running?"live live-running":"live"}><i/> {running?"Working":"Ready"}</span></div><div className="chat-scroll">{messages.length===0?<div className="welcome"><div className="spark">✦</div><h1>What do you want to build?</h1><p>CodeXai will generate files with Qwen, execute them in a persistent Vercel Sandbox, build, repair failures, and start a live preview.</p><div className="suggestions"><button onClick={()=>setPrompt("Build a modern SaaS dashboard with authentication and a responsive mobile layout")}>Build a SaaS dashboard</button><button onClick={()=>setPrompt("Build a landing page for an AI product with pricing and a waitlist")}>Create a landing page</button><button onClick={()=>setPrompt("Build a simple task manager with projects, filters and a mobile UI")}>Make a task manager</button></div></div>:<div className="conversation">{messages.map((message,index)=><div className={`message ${message.role}`} key={`${message.role}-${index}`}><div className="message-avatar">{message.role==="user"?"S":"✦"}</div><div className="message-body"><span className="message-label">{message.role==="user"?"You":"CodeXai"}</span><p>{message.text}</p></div></div>)}</div>}</div><form className="composer" onSubmit={submit}><input ref={fileInputRef} type="file" hidden multiple onChange={event=>{const names=Array.from(event.target.files??[]).map(file=>file.name);if(names.length)setPrompt(current=>`${current}${current?"\n":""}Attached files: ${names.join(", ")}`);event.currentTarget.value=""}}/><textarea value={prompt} onChange={event=>setPrompt(event.target.value)} placeholder="Ask CodeXai to build or change something…" rows={3}/><div className="composer-bar"><div className="composer-tools"><button type="button" aria-label="Attach files" onClick={()=>fileInputRef.current?.click()}>＋</button><span>Qwen • autonomous mode</span></div><button className="send-btn" disabled={running||!prompt.trim()}>{running?"…":"↑"}</button></div></form></section>
+ <section className={`preview-column mobile-pane ${tab==="preview"?"mobile-pane-active":""}`}><div className="preview-toolbar"><div className="view-title"><span className="traffic"><i/><i/><i/></span><strong>Live preview</strong><span className="preview-url">{result?.previewUrl?"Sandbox :3000":"waiting"}</span></div><div className="view-actions"><button onClick={()=>result?.previewUrl?setPreviewKey(key=>key+1):showNotice("Nothing to refresh yet.")} aria-label="Refresh preview">↻</button><button onClick={openPreview} aria-label="Open preview">↗</button><button className={mobilePreview?"device-active":""} onClick={()=>setMobilePreview(value=>!value)} aria-label="Toggle mobile preview">▣</button></div></div><div className="preview-canvas">{result?.previewUrl?<iframe key={previewKey} title="CodeXai live preview" src={result.previewUrl} className="live-preview-frame" style={mobilePreview?{width:"390px",maxWidth:"100%",margin:"0 auto",display:"block"}:undefined}/>:<div className="app-placeholder"><div className="placeholder-window"><div className="placeholder-top"><span/><span/><span/></div><div className="placeholder-content"><div className="placeholder-logo">✦</div><h2>Live app preview</h2><p>Run Build to create the app and start a real sandbox preview.</p><button onClick={()=>setMobileTab("agent")}>Ask Agent to build</button></div></div></div>}</div></section>
+ <section className={`preview-column mobile-pane ${tab==="code"?"mobile-pane-active":""}`}><div className="preview-toolbar"><div className="view-title"><span className="traffic"><i/><i/><i/></span><strong>Generated files</strong><span className="preview-url">{result?.files?.length?`${result.files.length} files`:"workspace"}</span></div></div><div className="preview-canvas"><pre>{codePreview}</pre></div></section>
+ <aside className={`activity-panel mobile-pane ${tab==="activity"?"mobile-pane-active":""}`} id="activity"><div className="activity-head"><div><strong>Build activity</strong><small>Autonomous task loop</small></div><div className="activity-menu"><button onClick={()=>setActivityMenuOpen(open=>!open)} aria-label="Activity menu">•••</button>{activityMenuOpen?<div className="menu-popover"><button onClick={()=>{setActivityMenuOpen(false);setTab("agent")}}>Open Agent</button><button onClick={()=>{setActivityMenuOpen(false);showNotice("Activity is preserved for this session.")}}>Session info</button></div>:null}</div></div><div className="task-list">{tasks.map((task,index)=><div className={`task ${task.state}`} key={task.title}><div className="task-marker">{task.state==="done"?"✓":task.state==="active"?<span className="loader"/>:task.state==="failed"?"!":index+1}</div><div><strong>{task.title}</strong><span>{task.detail}</span></div></div>)}</div>{result?.executions?.length?<div className="execution-list">{result.executions.map((item,index)=><div className="execution" key={`${item.command}-${index}`}><span className={item.ok?"exec-ok":"exec-fail"}>{item.ok?"✓":"!"}</span><code>{item.command}</code><small>{item.durationMs}ms</small></div>)}</div>:null}<div className="activity-footer"><span><i className={running?"pulse":""}/> {running?"Agent is working":result?"Build session complete":"Waiting for a task"}</span><small>Persistent sandbox</small></div></aside></main>
+ <nav className="bottom-nav">{(["agent","preview","code","activity"] as MobileTab[]).map(item=><button key={item} className={tab===item?"selected":""} onClick={()=>setMobileTab(item)}><span>{item==="agent"?"✦":item==="preview"?"◉":item==="code"?"▤":"☷"}</span><span>{item[0].toUpperCase()+item.slice(1)}</span></button>)}</nav>
+ {settingsOpen?<div className="modal-backdrop" role="presentation" onClick={()=>setSettingsOpen(false)}><div className="settings-modal" role="dialog" aria-modal="true" aria-label="CodeXai settings" onClick={event=>event.stopPropagation()}><div className="settings-head"><div><strong>Workspace settings</strong><small>CodeXai configuration</small></div><button onClick={()=>setSettingsOpen(false)} aria-label="Close settings">×</button></div><div className="settings-row"><span>Workspace ID</span><code>{workspaceId}</code></div><div className="settings-row"><span>AI provider</span><strong>Qwen</strong></div><div className="settings-row"><span>Execution</span><strong>Persistent Vercel Sandbox</strong></div><button className="publish-btn settings-close" onClick={()=>setSettingsOpen(false)}>Done</button></div></div>:null}</div>;
 }
