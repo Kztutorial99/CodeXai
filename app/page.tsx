@@ -5,16 +5,31 @@ import { FormEvent, useEffect, useState } from "react";
 type Message = { role: "user" | "agent"; text: string };
 type Task = { title: string; detail: string; state: "done" | "active" | "queued" | "failed" };
 type MobileTab = "agent" | "preview" | "code" | "activity";
-type AgentResult = { previewUrl?: string | null; files?: string[]; steps?: Array<{ name: string; status: string; detail?: string }>; plan?: { summary?: string } };
+type AgentStep = { name: string; status: string; detail?: string };
+type AgentResult = {
+  previewUrl?: string | null;
+  files?: string[];
+  steps?: AgentStep[];
+  executions?: Array<{ command: string; ok: boolean; stdout: string; stderr: string; durationMs: number }>;
+  plan?: { summary?: string };
+  repairAttempts?: number;
+};
 
 const seedTasks: Task[] = [
   { title: "Understand the request", detail: "Analyzing requirements and constraints", state: "done" },
   { title: "Plan the application", detail: "Qwen generates architecture and source files", state: "queued" },
   { title: "Build the project", detail: "Writing files and installing dependencies", state: "queued" },
-  { title: "Run tests", detail: "Running the production build", state: "queued" },
+  { title: "Run tests", detail: "Running the production build and inspecting failures", state: "queued" },
   { title: "Fix issues", detail: "Qwen diagnoses failures and repairs files", state: "queued" },
   { title: "Live preview", detail: "Starting the generated application", state: "queued" },
 ];
+
+function taskState(status: string | undefined): Task["state"] {
+  if (status === "completed") return "done";
+  if (status === "running") return "active";
+  if (status === "failed") return "failed";
+  return "queued";
+}
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
@@ -44,7 +59,11 @@ export default function Home() {
     setRunning(true);
     setTab("agent");
     setResult(null);
-    setMessages((current) => [...current, { role: "user", text: value }, { role: "agent", text: "I’m starting the autonomous build: planning files, creating the workspace, building and testing it…" }]);
+    setMessages((current) => [
+      ...current,
+      { role: "user", text: value },
+      { role: "agent", text: "I’m starting the autonomous build: planning files, creating the workspace, building and testing it…" },
+    ]);
     setTasks(seedTasks.map((task, index) => ({ ...task, state: index === 0 ? "done" : index === 1 ? "active" : "queued" })));
 
     try {
@@ -56,19 +75,27 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Autonomous agent failed");
       setResult(data);
+
       const summary = data.plan?.summary ?? "Build completed.";
       const previewText = data.previewUrl ? `\n\nLive preview: ${data.previewUrl}` : "";
-      setMessages((current) => [...current.slice(0, -1), { role: "agent", text: `${summary}\n\nI created ${data.files?.length ?? 0} project files, ran the build/test loop, and attempted automated repair when needed.${previewText}` }]);
-      const stepMap = new Map((data.steps ?? []).map((step: { name: string; status: string }) => [step.name, step.status]));
-      setTasks(seedTasks.map((task, index) => {
-        const name = ["plan", "build", "test", "repair", "deploy"][Math.min(index, 4)];
-        const status = stepMap.get(name);
-        if (status === "completed") return { ...task, state: "done" };
-        if (status === "failed") return { ...task, state: "failed" };
-        if (status === "running") return { ...task, state: "active" };
-        return { ...task, state: index === 5 && data.previewUrl ? "done" : "queued" };
-      }));
+      const repairText = data.repairAttempts ? ` Automated repair attempts: ${data.repairAttempts}.` : "";
+      setMessages((current) => [
+        ...current.slice(0, -1),
+        { role: "agent", text: `${summary}\n\nI created ${data.files?.length ?? 0} project files, ran the build/test loop, and attempted automated repair when needed.${repairText}${previewText}` },
+      ]);
+
+      const stepMap = new Map((data.steps ?? []).map((step: AgentStep) => [step.name, step.status]));
+      const hasPlan = stepMap.has("plan");
+      setTasks([
+        { ...seedTasks[0], state: hasPlan ? "done" : "active" },
+        { ...seedTasks[1], state: taskState(stepMap.get("plan")) },
+        { ...seedTasks[2], state: taskState(stepMap.get("build")) },
+        { ...seedTasks[3], state: taskState(stepMap.get("test")) },
+        { ...seedTasks[4], state: taskState(stepMap.get("repair")) },
+        { ...seedTasks[5], state: taskState(stepMap.get("deploy")) },
+      ]);
       if (data.previewUrl) setTab("preview");
+      else if (data.files?.length) setTab("code");
     } catch (error) {
       const text = error instanceof Error ? error.message : "Agent request failed";
       setMessages((current) => [...current.slice(0, -1), { role: "agent", text }]);
@@ -83,7 +110,9 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const codePreview = result?.files?.length ? result.files.map((file) => `// ${file}`).join("\n") : "// Generated project files will appear here.";
+  const codePreview = result?.files?.length
+    ? result.files.map((file) => `// ${file}`).join("\n")
+    : "// Generated project files will appear here.";
 
   return (
     <div className="app-shell">
@@ -119,13 +148,14 @@ export default function Home() {
         </section>
 
         <section className={`preview-column mobile-pane ${tab === "code" ? "mobile-pane-active" : ""}`}>
-          <div className="preview-toolbar"><div className="view-title"><span className="traffic"><i /><i /><i /></span><strong>Generated files</strong><span className="preview-url">workspace</span></div></div>
+          <div className="preview-toolbar"><div className="view-title"><span className="traffic"><i /><i /><i /></span><strong>Generated files</strong><span className="preview-url">{result?.files?.length ? `${result.files.length} files` : "workspace"}</span></div></div>
           <div className="preview-canvas"><pre>{codePreview}</pre></div>
         </section>
 
         <aside className={`activity-panel mobile-pane ${tab === "activity" ? "mobile-pane-active" : ""}`} id="activity">
           <div className="activity-head"><div><strong>Build activity</strong><small>Autonomous task loop</small></div><button>•••</button></div>
           <div className="task-list">{tasks.map((task, index) => <div className={`task ${task.state}`} key={task.title}><div className="task-marker">{task.state === "done" ? "✓" : task.state === "active" ? <span className="loader" /> : task.state === "failed" ? "!" : index + 1}</div><div><strong>{task.title}</strong><span>{task.detail}</span></div></div>)}</div>
+          {result?.executions?.length ? <div className="execution-list">{result.executions.map((item, index) => <div className="execution" key={`${item.command}-${index}`}><span className={item.ok ? "exec-ok" : "exec-fail"}>{item.ok ? "✓" : "!"}</span><code>{item.command}</code><small>{item.durationMs}ms</small></div>)}</div> : null}
           <div className="activity-footer"><span><i className={running ? "pulse" : ""} /> {running ? "Agent is working" : result ? "Build session complete" : "Waiting for a task"}</span><small>Persistent sandbox</small></div>
         </aside>
       </main>
